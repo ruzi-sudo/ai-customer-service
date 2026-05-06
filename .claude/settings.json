@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//home/ibrahim/.agents/skills/web-artifacts-builder/**)",
+      "Bash(bash scripts/init-artifact.sh ai-customer-service)",
+      "Bash(grep -v -E '^\\\\.claude$|^\\\\.git$')",
+      "Read(//tmp/**)",
+      "Bash(npx create-next-app@latest ai-cs-temp --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-pnpm --turbopack)"
+    ],
+    "additionalDirectories": [
+      "/home/ibrahim/.agents/skills/web-artifacts-builder/ai-customer-service/src/components/admin"
+    ]
+  }
+}
