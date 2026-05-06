@@ -14,8 +14,30 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: '消息不能为空' }, { status: 400 });
   }
 
+  // History restore: just return existing messages, no AI call
+  if (userContent === '__history__' && conversationId) {
+    const allMsgs = db.select().from(messages)
+      .where(eq(messages.conversationId, conversationId))
+      .orderBy(asc(messages.createdAt))
+      .all();
+
+    const conv = db.select().from(conversations)
+      .where(eq(conversations.id, conversationId))
+      .get();
+
+    return NextResponse.json({
+      conversationId,
+      messages: allMsgs,
+      waitingForAgent: conv?.waitingForAgent ?? false,
+    });
+  }
+
   // Get or create conversation
   let convId = conversationId;
+  if (convId) {
+    const existing = db.select().from(conversations).where(eq(conversations.id, convId)).get();
+    if (!existing) convId = null;
+  }
   if (!convId) {
     convId = uuid();
     const now = new Date();

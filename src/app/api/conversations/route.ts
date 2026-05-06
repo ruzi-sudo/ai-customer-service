@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { db } from '@/lib/db';
 import { conversations, messages } from '@/lib/db/schema';
-import { eq, desc, and, or } from 'drizzle-orm';
+import { eq, desc, and, or, inArray, sql } from 'drizzle-orm';
 import { getAuthUser } from '@/lib/auth';
 import { v4 as uuid } from 'uuid';
 
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   const waiting = searchParams.get('waiting');
 
   const conditions = [];
-  if (status) conditions.push(eq(conversations.status, status as 'active' | 'closed'));
+  if (status) conditions.push(eq(conversations.status, status as 'active' | 'closed' | 'ended'));
   if (mode) conditions.push(eq(conversations.mode, mode as 'ai' | 'manual'));
   if (waiting === 'true') conditions.push(eq(conversations.waitingForAgent, true));
 
@@ -44,4 +44,22 @@ export async function POST(request: NextRequest) {
 
   const conv = db.select().from(conversations).where(eq(conversations.id, id)).get();
   return NextResponse.json({ conversation: conv }, { status: 201 });
+}
+
+export async function DELETE(request: NextRequest) {
+  const user = await getAuthUser();
+  if (!user) return NextResponse.json({ error: '未登录' }, { status: 401 });
+
+  const { ids } = await request.json();
+  if (!Array.isArray(ids) || ids.length === 0) {
+    return NextResponse.json({ error: '请提供要删除的会话ID列表' }, { status: 400 });
+  }
+
+  // Delete messages first (foreign key), then conversations
+  for (const id of ids) {
+    db.delete(messages).where(eq(messages.conversationId, id)).run();
+  }
+  db.delete(conversations).where(inArray(conversations.id, ids)).run();
+
+  return NextResponse.json({ success: true, deleted: ids.length });
 }

@@ -9,6 +9,9 @@ import {
   XCircle,
   RefreshCw,
   Loader2,
+  Upload,
+  FileText,
+  Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,6 +25,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 
 interface Settings {
   api_base_url: string;
@@ -54,6 +58,13 @@ export default function SettingsForm() {
   // Connection test
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<'success' | 'error' | null>(null);
+
+  // Documents
+  const [documents, setDocuments] = useState<{ name: string; cached: boolean }[]>([]);
+  const [fetchingDocs, setFetchingDocs] = useState(false);
+  const [docError, setDocError] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState('');
 
   const [needsSave, setNeedsSave] = useState(false);
 
@@ -173,6 +184,68 @@ export default function SettingsForm() {
       setFetchingWs(false);
     }
   };
+
+  // --- Document management ---
+  const fetchDocuments = async (slug: string) => {
+    setFetchingDocs(true);
+    setDocError('');
+    try {
+      const res = await fetch(`/api/workspaces/${slug}/documents`);
+      const data = await res.json();
+      if (!res.ok) {
+        setDocError(data.error || '获取文档失败');
+        return;
+      }
+      setDocuments(data.workspace?.documents ?? []);
+    } catch {
+      setDocError('网络错误');
+    } finally {
+      setFetchingDocs(false);
+    }
+  };
+
+  const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !settings.workspace_slug) return;
+
+    setUploading(true);
+    setUploadProgress(`上传 ${file.name}...`);
+    setDocError('');
+
+    const formData = new FormData();
+    formData.set('file', file);
+
+    try {
+      const res = await fetch(`/api/workspaces/${settings.workspace_slug}/documents`, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+
+      if (!res.ok) {
+        setDocError(data.error || '上传失败');
+        return;
+      }
+
+      setUploadProgress('嵌入完成');
+      fetchDocuments(settings.workspace_slug);
+    } catch {
+      setDocError('网络错误');
+    } finally {
+      setUploading(false);
+      setTimeout(() => setUploadProgress(''), 3000);
+      e.target.value = '';
+    }
+  };
+
+  // Auto-fetch documents when workspace changes
+  useEffect(() => {
+    if (settings.workspace_slug) {
+      fetchDocuments(settings.workspace_slug);
+    } else {
+      setDocuments([]);
+    }
+  }, [settings.workspace_slug]);
 
   const updateField = (key: keyof Settings, value: string) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
@@ -404,6 +477,116 @@ export default function SettingsForm() {
             )}
           </CardContent>
         </Card>
+
+        {/* Document management */}
+        {settings.workspace_slug && (
+          <Card>
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="text-sm">工作区文档</CardTitle>
+                  <CardDescription className="text-xs">
+                    为「{settings.workspace_slug}」上传知识库文档
+                  </CardDescription>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="text-xs h-8 gap-1.5"
+                  onClick={() => fetchDocuments(settings.workspace_slug)}
+                  disabled={fetchingDocs}
+                >
+                  <RefreshCw className={cn('size-3.5', fetchingDocs && 'animate-spin')} />
+                  刷新
+                </Button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {docError && (
+                <div className="rounded-lg bg-red-50 border border-red-100 px-3 py-2 text-xs text-red-600">
+                  {docError}
+                </div>
+              )}
+
+              {/* Upload area */}
+              <div className="relative">
+                <input
+                  type="file"
+                  id="doc-upload"
+                  className="hidden"
+                  accept=".txt,.md,.pdf,.docx,.csv,.json,.html"
+                  onChange={handleUpload}
+                  disabled={uploading}
+                />
+                <label
+                  htmlFor="doc-upload"
+                  className={cn(
+                    'flex flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed p-6 cursor-pointer transition-colors',
+                    uploading
+                      ? 'border-zinc-300 bg-zinc-50 cursor-wait'
+                      : 'border-zinc-200 hover:border-emerald-300 hover:bg-emerald-50/50'
+                  )}
+                >
+                  {uploading ? (
+                    <>
+                      <Loader2 className="size-6 text-zinc-400 animate-spin" />
+                      <span className="text-xs text-zinc-500">{uploadProgress}</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="size-6 text-zinc-300" />
+                      <div className="text-center">
+                        <p className="text-xs font-medium text-zinc-600">点击上传文件</p>
+                        <p className="text-[10px] text-zinc-400 mt-0.5">
+                          支持 TXT、MD、PDF、DOCX、CSV、JSON、HTML
+                        </p>
+                      </div>
+                    </>
+                  )}
+                </label>
+              </div>
+
+              {/* Document list */}
+              {fetchingDocs ? (
+                <div className="flex items-center justify-center py-4 text-xs text-zinc-400">
+                  <Loader2 className="size-4 animate-spin mr-2" />
+                  加载文档列表...
+                </div>
+              ) : documents.length > 0 ? (
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-zinc-700">已嵌入文档 ({documents.length})</span>
+                  </div>
+                  <div className="divide-y rounded-lg border">
+                    {documents.map((doc, i) => (
+                      <div
+                        key={doc.name ?? i}
+                        className="flex items-center gap-2.5 px-3 py-2"
+                      >
+                        <FileText className="size-4 text-zinc-400 shrink-0" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-xs text-zinc-700 truncate">{doc.name}</p>
+                        </div>
+                        {doc.cached && (
+                          <Badge variant="secondary" className="text-[9px] h-4 px-1.5">
+                            已缓存
+                          </Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                !docError && (
+                  <div className="text-center py-4 text-xs text-zinc-400">
+                    暂无文档，上传文件以构建知识库
+                  </div>
+                )
+              )}
+            </CardContent>
+          </Card>
+        )}
       </form>
     </div>
   );

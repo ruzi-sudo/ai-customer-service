@@ -11,7 +11,7 @@ export const conversations = sqliteTable('conversations', {
   id: text('id').primaryKey(),
   title: text('title').notNull().default('新对话'),
   customerName: text('customer_name').notNull().default('访客'),
-  status: text('status', { enum: ['active', 'closed'] }).notNull().default('active'),
+  status: text('status', { enum: ['active', 'closed', 'ended'] }).notNull().default('active'),
   mode: text('mode', { enum: ['ai', 'manual'] }).notNull().default('ai'),
   waitingForAgent: integer('waiting_for_agent', { mode: 'boolean' }).notNull().default(false),
   rating: integer('rating'),

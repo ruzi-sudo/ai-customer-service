@@ -1,13 +1,14 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { Search, Headset, Send, Bot, User, X, MessageSquare, Info } from 'lucide-react';
+import { Search, Headset, Send, Bot, User, X, MessageSquare, Info, Trash2, CheckSquare, Square } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { connectSocket } from '@/lib/socket-client';
 
 interface Message {
   id: string;
@@ -28,7 +29,7 @@ interface Conversation {
   updatedAt: string;
 }
 
-type FilterTab = 'all' | 'ai' | 'waiting' | 'manual';
+type FilterTab = 'all' | 'ai' | 'waiting' | 'manual' | 'ended';
 
 function MessageItem({ message }: { message: Message }) {
   const isUser = message.role === 'user';
@@ -107,6 +108,7 @@ export default function ConversationPanel() {
   const [replyText, setReplyText] = useState('');
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   const fetchConversations = useCallback(() => {
@@ -134,6 +136,36 @@ export default function ConversationPanel() {
     fetchConversations();
   }, [fetchConversations]);
 
+  // Socket.IO real-time updates
+  useEffect(() => {
+    const socket = connectSocket();
+    socket.emit('admin:join');
+
+    const handleMessage = (data: { conversationId: string; message: Message }) => {
+      // If viewing this conversation, append the message
+      if (selectedId === data.conversationId) {
+        setMessages((prev) => [...prev, data.message]);
+      }
+    };
+
+    const handleConvUpdate = (data?: { conversationId?: string; mode?: string; status?: string; waitingForAgent?: boolean }) => {
+      fetchConversations();
+      // If viewing this conversation, also refresh messages to reflect status changes
+      if (data?.conversationId && selectedId === data.conversationId) {
+        fetchMessages(data.conversationId);
+      }
+    };
+
+    socket.on('admin:message', handleMessage);
+    socket.on('admin:conversation-update', handleConvUpdate);
+
+    return () => {
+      socket.off('admin:message', handleMessage);
+      socket.off('admin:conversation-update', handleConvUpdate);
+      socket.emit('admin:leave');
+    };
+  }, [fetchConversations, fetchMessages, selectedId]);
+
   useEffect(() => {
     if (selectedId) {
       fetchMessages(selectedId);
@@ -156,9 +188,10 @@ export default function ConversationPanel() {
 
     const matchesFilter =
       filter === 'all' ||
-      (filter === 'ai' && c.mode === 'ai' && !c.waitingForAgent) ||
+      (filter === 'ai' && c.mode === 'ai' && !c.waitingForAgent && c.status !== 'ended') ||
       (filter === 'waiting' && c.waitingForAgent) ||
-      (filter === 'manual' && c.mode === 'manual' && !c.waitingForAgent);
+      (filter === 'manual' && c.mode === 'manual' && !c.waitingForAgent && c.status !== 'ended') ||
+      (filter === 'ended' && c.status === 'ended');
 
     return matchesSearch && matchesFilter;
   });
@@ -197,6 +230,54 @@ export default function ConversationPanel() {
     }
   };
 
+  const handleDeleteSingle = async (id: string) => {
+    try {
+      const res = await fetch(`/api/conversations/${id}`, { method: 'DELETE' });
+      if (res.ok) {
+        if (selectedId === id) setSelectedId(null);
+        fetchConversations();
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const handleBatchDelete = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      const res = await fetch('/api/conversations', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(selectedIds) }),
+      });
+      if (res.ok) {
+        if (selectedIds.has(selectedId ?? '')) setSelectedId(null);
+        setSelectedIds(new Set());
+        fetchConversations();
+      }
+    } catch {
+      // ignore
+    }
+  };
+
+  const toggleSelect = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = () => {
+    const endedIds = filtered.filter((c) => c.status === 'ended').map((c) => c.id);
+    if (endedIds.every((id) => selectedIds.has(id))) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(endedIds));
+    }
+  };
+
   const handleSendReply = async () => {
     if (!selectedId || !replyText.trim()) return;
     setSending(true);
@@ -219,6 +300,13 @@ export default function ConversationPanel() {
   };
 
   const statusBadge = (conv: Conversation) => {
+    if (conv.status === 'ended') {
+      return (
+        <Badge className="bg-zinc-100 text-zinc-500 dark:bg-zinc-800 dark:text-zinc-400">
+          已结束
+        </Badge>
+      );
+    }
     if (conv.waitingForAgent) {
       return (
         <Badge className="bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300">
@@ -257,6 +345,7 @@ export default function ConversationPanel() {
     { key: 'ai', label: 'AI对话' },
     { key: 'waiting', label: '等待人工' },
     { key: 'manual', label: '已接入' },
+    { key: 'ended', label: '已结束' },
   ];
 
   if (loading) {
@@ -304,21 +393,77 @@ export default function ConversationPanel() {
 
         {/* Conversation list */}
         <ScrollArea className="flex-1">
+          {/* Batch delete toolbar */}
+          {filter === 'ended' && filtered.length > 0 && (
+            <div className="flex items-center justify-between border-b px-3 py-2 bg-zinc-50 dark:bg-zinc-900">
+              <button
+                onClick={toggleSelectAll}
+                className="flex items-center gap-1.5 text-xs text-zinc-600 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
+              >
+                {filtered.filter((c) => c.status === 'ended').every((c) => selectedIds.has(c.id)) ? (
+                  <CheckSquare className="size-3.5" />
+                ) : (
+                  <Square className="size-3.5" />
+                )}
+                全选
+              </button>
+              {selectedIds.size > 0 && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={handleBatchDelete}
+                >
+                  <Trash2 className="size-3" />
+                  删除 ({selectedIds.size})
+                </Button>
+              )}
+            </div>
+          )}
           <div className="divide-y">
             {filtered.map((conv) => (
-              <button
+              <div
                 key={conv.id}
-                onClick={() => setSelectedId(conv.id)}
                 className={cn(
-                  'flex w-full flex-col gap-1 px-3 py-3 text-left transition-colors',
+                  'flex w-full items-start gap-2 px-3 py-3 text-left transition-colors',
                   selectedId === conv.id
                     ? 'bg-emerald-50 dark:bg-emerald-950'
                     : 'hover:bg-zinc-50 dark:hover:bg-zinc-900'
                 )}
               >
+                {filter === 'ended' && conv.status === 'ended' && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); toggleSelect(conv.id); }}
+                    className="mt-1 shrink-0 text-zinc-400 hover:text-zinc-600"
+                  >
+                    {selectedIds.has(conv.id) ? (
+                      <CheckSquare className="size-4 text-emerald-600" />
+                    ) : (
+                      <Square className="size-4" />
+                    )}
+                  </button>
+                )}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => setSelectedId(conv.id)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') setSelectedId(conv.id); }}
+                  className="flex flex-1 flex-col gap-1 text-left cursor-pointer"
+                >
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium">{conv.customerName}</span>
-                  {statusBadge(conv)}
+                  <div className="flex items-center gap-1.5">
+                    {statusBadge(conv)}
+                    {conv.status === 'ended' && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteSingle(conv.id); }}
+                        className="rounded p-1 text-zinc-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950"
+                        aria-label="删除会话"
+                      >
+                        <Trash2 className="size-3.5" />
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <p className="truncate text-xs text-muted-foreground">{conv.title}</p>
                 <div className="flex items-center justify-between">
@@ -329,7 +474,8 @@ export default function ConversationPanel() {
                     <span className="flex size-2 rounded-full bg-amber-500 animate-pulse" />
                   )}
                 </div>
-              </button>
+                </div>
+              </div>
             ))}
             {filtered.length === 0 && (
               <div className="px-3 py-8 text-center text-sm text-muted-foreground">
@@ -352,6 +498,29 @@ export default function ConversationPanel() {
               </div>
               <div className="flex items-center gap-2">
                 {statusBadge(selected)}
+                {selected.status !== 'ended' && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 text-xs"
+                    onClick={async () => {
+                      if (!selectedId) return;
+                      try {
+                        const res = await fetch(`/api/conversations/${selectedId}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ status: 'ended' }),
+                        });
+                        if (res.ok) {
+                          fetchConversations();
+                          fetchMessages(selectedId);
+                        }
+                      } catch {}
+                    }}
+                  >
+                    结束会话
+                  </Button>
+                )}
                 <button
                   onClick={() => setSelectedId(null)}
                   className="rounded-md p-1 text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800"
@@ -379,7 +548,18 @@ export default function ConversationPanel() {
 
             {/* Action area */}
             <div className="border-t p-3">
-              {selected.waitingForAgent && (
+              {selected.status === 'ended' && (
+                <Button
+                  variant="destructive"
+                  className="w-full"
+                  onClick={() => handleDeleteSingle(selected.id)}
+                >
+                  <Trash2 className="mr-2 size-4" />
+                  删除此会话
+                </Button>
+              )}
+
+              {!selected.status?.includes('ended') && selected.waitingForAgent && (
                 <Button
                   onClick={handleAcceptConversation}
                   className="w-full bg-blue-600 text-white hover:bg-blue-700"

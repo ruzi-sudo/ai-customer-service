@@ -39,5 +39,14 @@ export async function POST(
   }).where(eq(conversations.id, id)).run();
 
   const msg = db.select().from(messages).where(eq(messages.id, msgId)).get();
+
+  // Push to customer via Socket.IO
+  const io = (globalThis as any).__io;
+  if (io && msg) {
+    const msgData = { ...msg, createdAt: new Date(msg.createdAt).toISOString() };
+    io.to(`conv:${id}`).emit('chat:reply', msgData);
+    io.to('admin').emit('admin:message', { conversationId: id, message: msgData });
+  }
+
   return NextResponse.json({ message: msg }, { status: 201 });
 }
