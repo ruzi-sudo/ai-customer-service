@@ -3,6 +3,9 @@ import { parse } from 'url';
 import next from 'next';
 import { Server as SocketIOServer } from 'socket.io';
 import { handleChat, getHistory } from './src/lib/chat-handler';
+import Database from 'better-sqlite3';
+import path from 'path';
+import cron from 'node-cron';
 
 const dev = process.env.NODE_ENV !== 'production';
 const hostname = 'localhost';
@@ -105,5 +108,54 @@ app.prepare().then(() => {
 
   server.listen(port, () => {
     console.log(`> Ready on http://${hostname}:${port}`);
+  });
+
+  // Auto-end stale conversations every 5 minutes
+  const THIRTY_MIN = 30 * 60 * 1000;
+  const sqlite = new Database(path.join(process.cwd(), 'data', 'customer-service.db'));
+  sqlite.pragma('journal_mode = WAL');
+  sqlite.pragma('foreign_keys = ON');
+
+  cron.schedule('*/5 * * * *', () => {
+    const cutoff = Date.now() - THIRTY_MIN;
+    const rows = sqlite.prepare(
+      `SELECT id FROM conversations WHERE status = 'active' AND updated_at <= ?`
+    ).all(Math.floor(cutoff / 1000)) as { id: string }[];
+
+    if (rows.length === 0) return;
+
+    const stmt = sqlite.prepare(
+      `UPDATE conversations SET status = 'ended', updated_at = ? WHERE id = ?`
+    );
+    const now = Math.floor(Date.now() / 1000);
+
+    for (const row of rows) {
+      stmt.run(now, row.id);
+      io.to(`conv:${row.id}`).emit('chat:status', {
+        conversationId: row.id,
+        status: 'ended',
+      });
+    }
+
+    io.to('admin').emit('admin:conversation-update', {});
+    console.log(`[auto-end] Ended ${rows.length} stale conversation(s)`);
+  });
+
+  // Prompt rating for active conversations whose last message is >1min old and unrated
+  const ONE_MIN = 60;
+  cron.schedule('* * * * *', () => {
+    const cutoff = Math.floor(Date.now() / 1000) - ONE_MIN;
+    const rows = sqlite.prepare(
+      `SELECT c.id, MAX(m.created_at) as last_msg_at
+       FROM conversations c
+       JOIN messages m ON m.conversation_id = c.id
+       WHERE c.status = 'active' AND c.rating IS NULL
+       GROUP BY c.id
+       HAVING last_msg_at <= ?`
+    ).all(cutoff) as { id: string; last_msg_at: number }[];
+
+    for (const row of rows) {
+      io.to(`conv:${row.id}`).emit('chat:rating', { conversationId: row.id });
+    }
   });
 });

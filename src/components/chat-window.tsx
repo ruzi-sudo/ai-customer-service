@@ -15,6 +15,7 @@ import {
 import { useRouter } from 'next/navigation';
 import { cn } from '@/lib/utils';
 import { MentionPopup } from '@/components/mention-popup';
+import { RatingBubble } from '@/components/rating-bubble';
 import { connectSocket } from '@/lib/socket-client';
 import type { Socket } from 'socket.io-client';
 
@@ -38,6 +39,7 @@ export function ChatWindow() {
   );
   const [waitingForAgent, setWaitingForAgent] = useState(false);
   const [sessionEnded, setSessionEnded] = useState(false);
+  const [showRating, setShowRating] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
@@ -88,11 +90,17 @@ export function ChatWindow() {
   }, []);
 
   const handleHistory = useCallback((data: { messages: Message[]; waitingForAgent: boolean; ended?: boolean }) => {
+    if (data.ended) {
+      // Previous session ended — clear and start fresh
+      localStorage.removeItem(CONV_ID_KEY);
+      setConversationId(null);
+      convIdRef.current = null;
+      return;
+    }
     if (data.messages?.length) {
       setMessages(data.messages.filter((m: Message) => m.content !== '__history__'));
       if (data.waitingForAgent) setWaitingForAgent(true);
     }
-    if (data.ended) setSessionEnded(true);
   }, []);
 
   // Socket.IO connection + history restore
@@ -145,6 +153,34 @@ export function ChatWindow() {
     }
   }, [isLoading, messages.length]);
 
+  // Listen for server-side rating prompt (cron checks last message time)
+  useEffect(() => {
+    const socket = socketRef.current;
+    if (!socket) return;
+
+    const handler = ({ conversationId: cid }: { conversationId: string }) => {
+      if (cid !== convIdRef.current) return;
+      const key = `ai-cs-rated-${cid}`;
+      if (localStorage.getItem(key)) return;
+      setShowRating(true);
+    };
+
+    socket.on('chat:rating', handler);
+    return () => { socket.off('chat:rating', handler); };
+  }, []);
+
+  const handleRating = (stars: number) => {
+    const cid = convIdRef.current;
+    if (!cid) return;
+    fetch(`/api/conversations/${cid}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rating: stars }),
+    }).catch(() => {});
+    localStorage.setItem(`ai-cs-rated-${cid}`, '1');
+    setShowRating(false);
+  };
+
   const sendMessage = (content: string) => {
     if (!content.trim() || isLoading || waitingForAgent || sessionEnded) return;
 
@@ -188,6 +224,7 @@ export function ChatWindow() {
     convIdRef.current = null;
     setWaitingForAgent(false);
     setSessionEnded(false);
+    setShowRating(false);
     setInput('');
     localStorage.removeItem(CONV_ID_KEY);
   };
@@ -276,6 +313,11 @@ export function ChatWindow() {
                 <div className="flex items-center gap-2 text-zinc-400 text-sm pl-12 py-2">
                   <Loader2 className="size-4 animate-spin" />
                   <span>AI 正在思考...</span>
+                </div>
+              )}
+              {showRating && (
+                <div className="flex justify-center py-3">
+                  <RatingBubble onSubmit={handleRating} />
                 </div>
               )}
               <div ref={messagesEndRef} />
