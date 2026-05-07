@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useRef, useCallback } from 'react';
-import { Search, Headset, Send, Bot, User, X, MessageSquare, Info, Trash2, CheckSquare, Square } from 'lucide-react';
+import { Search, Headset, Send, Bot, User, X, MessageSquare, Info, Trash2, CheckSquare, Square, ArrowLeft } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -142,7 +142,6 @@ export default function ConversationPanel() {
     socket.emit('admin:join');
 
     const handleMessage = (data: { conversationId: string; message: Message }) => {
-      // If viewing this conversation, append the message
       if (selectedId === data.conversationId) {
         setMessages((prev) => [...prev, data.message]);
       }
@@ -150,7 +149,6 @@ export default function ConversationPanel() {
 
     const handleConvUpdate = (data?: { conversationId?: string; mode?: string; status?: string; waitingForAgent?: boolean }) => {
       fetchConversations();
-      // If viewing this conversation, also refresh messages to reflect status changes
       if (data?.conversationId && selectedId === data.conversationId) {
         fetchMessages(data.conversationId);
       }
@@ -357,9 +355,12 @@ export default function ConversationPanel() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] overflow-hidden rounded-lg border bg-white dark:bg-zinc-950">
+    <div className="flex h-[calc(100vh-4rem)] lg:h-screen overflow-hidden rounded-lg border bg-white dark:bg-zinc-950">
       {/* Left panel - conversation list */}
-      <div className="flex w-80 shrink-0 flex-col border-r">
+      <div className={cn(
+        'flex w-full shrink-0 flex-col border-r lg:w-80',
+        selectedId ? 'hidden lg:flex' : 'flex'
+      )}>
         {/* Search */}
         <div className="border-b p-3">
           <div className="relative">
@@ -373,14 +374,14 @@ export default function ConversationPanel() {
           </div>
         </div>
 
-        {/* Filter tabs */}
-        <div className="flex border-b px-1">
+        {/* Filter tabs - scrollable on mobile */}
+        <div className="flex border-b px-1 overflow-x-auto">
           {filterTabs.map((tab) => (
             <button
               key={tab.key}
               onClick={() => setFilter(tab.key)}
               className={cn(
-                'flex-1 px-2 py-2 text-xs font-medium transition-colors',
+                'flex-1 whitespace-nowrap px-2 py-2 text-xs font-medium transition-colors',
                 filter === tab.key
                   ? 'border-b-2 border-emerald-600 text-emerald-600'
                   : 'text-muted-foreground hover:text-foreground'
@@ -487,22 +488,33 @@ export default function ConversationPanel() {
       </div>
 
       {/* Right panel - conversation detail */}
-      <div className="flex flex-1 flex-col">
+      <div className={cn(
+        'flex flex-1 flex-col',
+        selectedId ? 'flex' : 'hidden lg:flex'
+      )}>
         {selected ? (
           <>
             {/* Header */}
-            <div className="flex items-center justify-between border-b px-4 py-3">
-              <div>
-                <h2 className="text-sm font-semibold">{selected.customerName}</h2>
-                <p className="text-xs text-muted-foreground">{selected.title}</p>
+            <div className="flex items-center justify-between border-b px-3 py-3 lg:px-4">
+              <div className="flex items-center gap-2 min-w-0">
+                <button
+                  onClick={() => setSelectedId(null)}
+                  className="lg:hidden rounded-md p-1.5 text-zinc-500 hover:bg-zinc-100"
+                >
+                  <ArrowLeft className="size-4" />
+                </button>
+                <div className="min-w-0">
+                  <h2 className="text-sm font-semibold truncate">{selected.customerName}</h2>
+                  <p className="text-xs text-muted-foreground truncate">{selected.title}</p>
+                </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 shrink-0">
                 {statusBadge(selected)}
                 {selected.status !== 'ended' && (
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-7 text-xs"
+                    className="hidden sm:inline-flex h-7 text-xs"
                     onClick={async () => {
                       if (!selectedId) return;
                       try {
@@ -523,7 +535,7 @@ export default function ConversationPanel() {
                 )}
                 <button
                   onClick={() => setSelectedId(null)}
-                  className="rounded-md p-1 text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                  className="hidden lg:flex rounded-md p-1 text-muted-foreground hover:bg-zinc-100 dark:hover:bg-zinc-800"
                 >
                   <X className="size-4" />
                 </button>
@@ -531,7 +543,7 @@ export default function ConversationPanel() {
             </div>
 
             {/* Messages */}
-            <ScrollArea className="flex-1 p-4">
+            <ScrollArea className="flex-1 p-3 lg:p-4">
               {messagesLoading ? (
                 <div className="flex items-center justify-center h-32 text-sm text-muted-foreground">
                   加载消息中...

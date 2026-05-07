@@ -98,8 +98,8 @@ export default function Analytics() {
   }
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold">数据分析</h1>
+    <div className="space-y-6 p-4 lg:p-6">
+      <h1 className="text-xl lg:text-2xl font-bold">数据分析</h1>
 
       {/* Metric cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">

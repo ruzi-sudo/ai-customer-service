@@ -185,8 +185,14 @@ export function FloatingChat() {
     setShowRating(false);
   };
 
+  const isMobile = () => typeof window !== 'undefined' && window.innerWidth < 768;
+
   const handleOpenMini = () => {
-    setChatState('mini');
+    if (isMobile()) {
+      router.push('/chat');
+    } else {
+      setChatState('mini');
+    }
     setHasUnread(false);
   };
 

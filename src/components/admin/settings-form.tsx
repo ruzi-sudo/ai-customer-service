@@ -261,7 +261,7 @@ export default function SettingsForm() {
   }
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6 p-4 lg:p-6">
       <div>
         <h1 className="text-xl font-semibold text-zinc-900">系统设置</h1>
         <p className="text-sm text-zinc-500 mt-0.5">配置 AnythingLLM 连接参数</p>
@@ -321,7 +321,7 @@ export default function SettingsForm() {
               </p>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Button
                 type="submit"
                 className="bg-zinc-900 hover:bg-zinc-800 text-white text-xs h-9"
