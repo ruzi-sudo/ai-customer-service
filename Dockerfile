@@ -39,10 +39,12 @@ COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
 COPY --from=builder /app/next.config.ts ./next.config.ts
 COPY --from=builder /app/components.json ./components.json
+COPY docker-entrypoint.sh ./docker-entrypoint.sh
 
-RUN mkdir -p data && chown app:nodejs data
+RUN mkdir -p data && chown app:nodejs data && \
+    chmod +x docker-entrypoint.sh
 
 USER app
 EXPOSE 3000
 
-CMD ["npx", "tsx", "server.ts"]
+CMD ["./docker-entrypoint.sh"]
