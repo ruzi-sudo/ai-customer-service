@@ -37,4 +37,4 @@ RUN mkdir -p data && chown app:nodejs data
 USER app
 EXPOSE 3000
 
-CMD ["npx", "tsx", "server.ts"]
+CMD ["pnpm", "tsx", "server.ts"]
