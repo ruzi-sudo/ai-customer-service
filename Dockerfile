@@ -6,7 +6,8 @@ RUN corepack enable pnpm
 # Install dependencies
 FROM base AS deps
 COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN pnpm config set registry https://registry.npmmirror.com && \
+    pnpm install --frozen-lockfile
 
 # Build
 FROM base AS builder
