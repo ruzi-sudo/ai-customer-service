@@ -3,14 +3,13 @@ RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 RUN apk add --no-cache gcompat python3 make g++
 WORKDIR /app
 ENV COREPACK_NPM_REGISTRY=https://registry.npmmirror.com
-RUN corepack enable pnpm
+RUN corepack enable pnpm && corepack install -g pnpm@latest
 
 # Install dependencies
 FROM base AS deps
 COPY package.json pnpm-lock.yaml ./
 RUN pnpm config set registry https://registry.npmmirror.com && \
     pnpm install --frozen-lockfile
-    
 
 # Build
 FROM base AS builder
@@ -19,9 +18,7 @@ COPY . .
 RUN pnpm build
 
 # Production
-FROM swr.cn-north-4.myhuaweicloud.com/ddn-k8s/docker.io/node:22-alpine3.22 AS runner
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
-RUN apk add --no-cache gcompat
+FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
